@@ -1,0 +1,67 @@
+#!/usr/bin/python
+
+import transmissionrpc
+import os
+import re
+
+# TODO : Add support for movie extraction/move/link/whatever
+
+trans = transmissionrpc.Client('gilgamesh.uruk.home', port=9091)
+
+DownloadDir = "/var/ftp/misc_media/Torrents/Torrent\ Finished"
+TorrentId   = int(os.getenv('TR_TORRENT_ID'))
+TorrentName = os.getenv('TR_TORRENT_NAME')
+#TorrentName = "The.Big.Bang.Theory.S05E19.720p.HDTV.X264-DIMENSION"
+#TorrentId   = 98
+SeriesDir   = "/var/ftp/series"
+FilmsDir    = "/var/ftp/misc_media/Films"
+
+
+def Film_or_Serie(Name):
+    """ This function permits to detect by the name of torrent if it is a film
+    or a serie.
+    
+    Parameters :
+        Name -- string which contains torrent name.
+        
+    """
+    regexDetectSerie  = r"(?P<Name>.*)[Ss](?P<Season>\d{1,2})[Ee]\d{1,2}.*"
+    detectSerie = re.search(regexDetectSerie, Name)
+    if detectSerie:
+        serieName     = detectSerie.group('Name')
+        serieSeasonNb = int(detectSerie.group('Season'))
+        # Format the serieName
+        regexUneededCar  = r"[._-]"
+        regexReplacedCar = r" "
+        serieName        = re.sub(regexUneededCar, regexReplacedCar, serieName)
+        serieName        = serieName.strip()
+        print(serieName,serieSeasonNb)
+        deployNewEpisode(serieName, serieSeasonNb)
+    else:
+        print(Name+' is a movie') 
+
+def deployNewEpisode(Title, Season):
+    """Deploy the new downloaded epidode to the correct path
+
+    Parameters :
+        Title -- Formatted Title of tv show.
+        Season -- Season number
+
+    """
+    seriePath   = SeriesDir+"/"+Title
+    nbOfSeasons = sorted(os.listdir(seriePath))
+    # Create directory if doesn't exists
+    if len(nbOfSeasons) < Season:
+        os.mkdir(seriePath+"/"+"Season "+Season)
+    #We had to soustract 1 because list count beginning at 0
+    print(nbOfSeasons[Season-1])
+    os.chdir(seriePath+"/"+nbOfSeasons[Season-1])
+    
+    files = trans.get_files(TorrentId)
+    for filename in files[TorrentId].values():
+        filetype = re.sub(r".*(.{3})$", r"\1", filename['name'])
+        if filetype == "rar":
+            os.system("/usr/bin/unrar e "\
+                    +DownloadDir+"/"+filename['name'])
+
+Film_or_Serie(TorrentName)
