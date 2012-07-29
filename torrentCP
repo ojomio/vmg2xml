@@ -1,4 +1,5 @@
 #!/usr/bin/python
+# -*- coding: utf-8 -*-
 
 import transmissionrpc
 import os
@@ -6,62 +7,114 @@ import re
 
 # TODO : Add support for movie extraction/move/link/whatever
 
-trans = transmissionrpc.Client('gilgamesh.uruk.home', port=9091)
+# Global variable init
+hostname = 'gilgamesh.uruk.home'
+DownloadDir = '/data/misc_media/Torrents/Torrent\ Finished'
+#TorrentId   = int(os.getenv('TR_TORRENT_ID'))
+TorrentId   = 132
+SeriesDir   = '/data/series'
+MovieDir    = '/data/misc_media/Films'
 
-DownloadDir = "/var/ftp/misc_media/Torrents/Torrent\ Finished"
-TorrentId   = int(os.getenv('TR_TORRENT_ID'))
-TorrentName = os.getenv('TR_TORRENT_NAME')
-#TorrentName = "The.Big.Bang.Theory.S05E19.720p.HDTV.X264-DIMENSION"
-#TorrentId   = 98
-SeriesDir   = "/var/ftp/series"
-FilmsDir    = "/var/ftp/misc_media/Films"
+# Array of uneeded informations from name
+uneededInformations = re.compile( r'Multi|720p|1080p|x264|HDTV|BDRip|BRRip|AC3|OGG|MPC|Lossless|CBR|VBR|Lame|EAC|DVD-R|DVDRIP|HDrip|mp3|Repack|Subforced|hardsub|TS|TVrip|TRUEFRENCH|vf|vfq|vostfr|vo|ntsc|pal|version|longue|FRENCH|xvid|BluRay|DVD5|DVD9WiKi|DC|SSL|3D|pox|GA\xcfA|Hive|hq|dts|dd5|^1$|rip', re.I )
+# Movie extensions
+movieExt = ( 'mkv', 'avi', 'mp4' )
+musicExt = ( 'mp3', 'flac', 'ogg' )
 
+trans = transmissionrpc.Client(hostname, port=9091)
 
-def Film_or_Serie(Name):
-    """ This function permits to detect by the name of torrent if it is a film
+def Movie_or_Serie(Id):
+    ''' This function permits to detect by the name of torrent if it is a movie
     or a serie.
     
     Parameters :
         Name -- string which contains torrent name.
         
-    """
-    regexDetectSerie  = r"(?P<Name>.*)[Ss](?P<Season>\d{1,2})[Ee]\d{1,2}.*"
+    '''
+    t = trans.info(Id)
+    Name = t[Id].name
+    # Try to detect sXXeYY format
+    regexDetectSerie  = r'(?P<Name>.*)[Ss](?P<Season>\d{1,2})[Ee]\d{1,2}.*'
     detectSerie = re.search(regexDetectSerie, Name)
+    # get files to detect others type than serie
+    files = trans.get_files(TorrentId)
+    for fileItem in files[TorrentId].values():
+        if fileItem['name'].endswith(movieExt):
+            detectMovie = fileItem['name']
+        elif fileItem['name'].endswith(musicExt):
+            detectMusic = Name
+
     if detectSerie:
+        print(Name+' is a serie') 
         serieName     = detectSerie.group('Name')
         serieSeasonNb = int(detectSerie.group('Season'))
         # Format the serieName
-        regexUneededCar  = r"[._-]"
-        regexReplacedCar = r" "
+        regexUneededCar  = r'[._-]'
+        regexReplacedCar = r' '
         serieName        = re.sub(regexUneededCar, regexReplacedCar, serieName)
         serieName        = serieName.strip()
         print(serieName,serieSeasonNb)
         deployNewEpisode(serieName, serieSeasonNb)
-    else:
-        print(Name+' is a movie') 
+    elif detectMovie:
+        print(detectMovie+' is a movie')
+        deployNewMovie(detectMovie)
+
+def deployNewMovie(Name):
+    '''Deploy new movie and try to set file name with title and years
+
+    Parameters :
+        Name -- Name of torrent file to deploy
+    '''
+    moviePath = Name
+    # Find Year, good to do that before getting rid of uneeded directory path in name
+    YearReObj = re.search(r'(?P<y>(?:19|20)\d{2})', Name)
+    try:
+        Year = YearReObj.group('y')
+        year = '(' + Year + ')'
+    except AttributeError:
+        Year = ''
+    # Get rid of directory in path filename
+    movieFile = re.sub(r'.*/(.*)$', r'\1', Name)
+    splittedTitle = re.findall(r'\w+', movieFile, re.U)
+    goodTitle = [ word for word in splittedTitle if not uneededInformations.search(word)] 
+    print(goodTitle)
+
+    # Format filename
+    ext = '.' + goodTitle[-1]
+    del goodTitle[-1]
+    for k,v in enumerate(goodTitle):
+        if v == Year:
+            del goodTitle[k:]
+    try:
+        movieFileName = ' '.join(goodTitle) + ' ' + year + ext
+    except:
+        movieFileName = ' '.join(goodTitle) + ext
+    print(movieFileName)
+    os.link(DownloadDir+'/'+moviePath, MovieDir+'/'+movieFileName)
 
 def deployNewEpisode(Title, Season):
-    """Deploy the new downloaded epidode to the correct path
+    '''Deploy the new downloaded epidode to the correct path
 
     Parameters :
         Title -- Formatted Title of tv show.
         Season -- Season number
 
-    """
-    seriePath   = SeriesDir+"/"+Title
+    '''
+    seriePath   = SeriesDir+'/'+Title
     nbOfSeasons = sorted(os.listdir(seriePath))
     # Create directory if doesn't exists
     if len(nbOfSeasons) < Season:
-        os.mkdir(seriePath+"/"+"Season "+Season)
+        os.mkdir(seriePath+'/'+'Season '+Season)
     #We had to soustract 1 because list count beginning at 0
     print(nbOfSeasons[Season-1])
-    os.chdir(seriePath+"/"+nbOfSeasons[Season-1])
+    os.chdir(seriePath+'/'+nbOfSeasons[Season-1])
     
+    # Find rar file and decompress episode
     files = trans.get_files(TorrentId)
     for filename in files[TorrentId].values():
-        filetype = re.sub(r".*(.{3})$", r"\1", filename['name'])
-        if filetype == "rar":
-            os.system("/usr/bin/unrar e "\
-                    +DownloadDir+"/"+filename['name'])
+        filetype = re.sub(r'.*(.{3})$', r'\1', filename['name'])
+        if filetype == 'rar':
+            os.system('/usr/bin/unrar e '\
+                    +DownloadDir+'/'+filename['name'])
 
-Film_or_Serie(TorrentName)
+Movie_or_Serie(TorrentId)
