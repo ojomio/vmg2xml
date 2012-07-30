@@ -114,7 +114,10 @@ def deployNewEpisode(Title, Season):
     for filename in files[TorrentId].values():
         filetype = re.sub(r'.*(.{3})$', r'\1', filename['name'])
         if filetype == 'rar':
+            # Escape all illegal char before use variable
+            Dir = re.sub(r'(\W)', r'\\\1', DownloadDir)
             os.system('/usr/bin/unrar e '\
-                    +DownloadDir+'/'+filename['name'])
+                    +Dir+'/'+filename['name'])
 
+# Main
 Movie_or_Serie(TorrentId)
