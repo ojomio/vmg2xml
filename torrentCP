@@ -1,17 +1,15 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import transmissionrpc
-import os
-import re
+import transmissionrpc, os, re
 
 # TODO : Add support for movie extraction/move/link/whatever
 
 # Global variable init
 hostname = 'gilgamesh.uruk.home'
 DownloadDir = '/data/misc_media/Torrents/Torrent\ Finished'
-#TorrentId   = int(os.getenv('TR_TORRENT_ID'))
-TorrentId   = 132
+TorrentId   = int(os.getenv('TR_TORRENT_ID'))
+#TorrentId   = 132
 SeriesDir   = '/data/series'
 MovieDir    = '/data/misc_media/Films'
 
