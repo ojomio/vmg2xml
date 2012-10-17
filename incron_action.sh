@@ -19,7 +19,7 @@ function backupthat
 }
 
 case $EXT in
-    swp|swx|4913)
+    ld.so.cache*|swp|swx|4913)
         echo $FILE
         exit 0
         ;;
