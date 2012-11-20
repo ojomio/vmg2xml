@@ -10,6 +10,8 @@ except ImportError:
     import imp
     imp.load_module('transmissionrpc', *imp.find_module('transmissionrpc', [os.path.realpath('../lib/python')]))
 
+import transmissionrpc
+
 # TODO : Add support for movie extraction/move/link/whatever
 
 # Global variable init
