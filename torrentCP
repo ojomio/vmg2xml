@@ -22,7 +22,7 @@ SeriesDir   = '/data/series'
 FilmsDir    = '/data/misc_media/Films'
 
 # Array of uneeded informations from name
-uneededInformations = re.compile( r'Multi|720p|1080p|x264|HDTV|BDRip|BRRip|AC3|OGG|MPC|Lossless|CBR|VBR|Lame|EAC|DVD-R|DVDRIP|HDrip|mp3|Repack|Subforced|hardsub|TS|TVrip|TRUEFRENCH|vf|vfq|vostfr|vo|ntsc|pal|version|longue|FRENCH|xvid|BluRay|DVD5|DVD9WiKi|DC|SSL|3D|pox|GA\xcfA|Hive|hq|dts|dd5|^1$|rip', re.I )
+uneededInformations = re.compile( r'FR|EN|Subs|HD|Sprlove|Multi|720p|1080p|x264|HDTV|BDRip|BRRip|AC3|OGG|MPC|Lossless|CBR|VBR|Lame|EAC|DVD-R|DVDRIP|HDrip|mp3|Repack|Subforced|hardsub|TS|TVrip|TRUEFRENCH|vf|vfq|vostfr|vo|ntsc|pal|version|longue|FRENCH|xvid|BluRay|DVD5|DVD9WiKi|DC|SSL|3D|pox|GA\xcfA|Hive|hq|dts|dd5|^1$|rip', re.I )
 # Movie extensions
 movieExt = ( 'mkv', 'avi', 'mp4' )
 musicExt = ( 'mp3', 'flac', 'ogg' )
