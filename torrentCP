@@ -16,7 +16,7 @@ FilmsDir    = '/data/misc_media/Films/'
 # Array of uneeded informations from name
 uneededInformations = re.compile( r'Multi|720p|1080p|x264|HDTV|BDRip|BRRip|AC3|OGG|MPC|Lossless|CBR|VBR|Lame|EAC|DVD-R|DVDRIP|HDrip|mp3|Repack|Subforced|hardsub|TS|TVrip|TRUEFRENCH|vf|vfq|vostfr|vo|ntsc|pal|version|longue|FRENCH|xvid|BluRay|DVD5|DVD9WiKi|DC|SSL|3D|pox|GA\xcfA|Hive|hq|dts|dd5|^1$|rip', re.I )
 # Movie extensions
-movieExt = ( 'mkv', 'avi', 'mp4' )
+movieExt = ( 'mkv', 'avi', 'mp4', 'iso' )
 musicExt = ( 'mp3', 'flac', 'ogg' )
 
 trans = transmissionrpc.Client(hostname, port=9091)
@@ -114,18 +114,18 @@ def deployNewEpisode(Title, Season):
     files = trans.get_files(TorrentId)
     for filename in files[TorrentId].values():
         if not re.search('sample', filename['name'], re.I):
-	        filetype = re.sub(r'.*(.{3})$', r'\1', filename['name'])
-	        if filetype == 'rar':
-	            print('It is an archive file. Ready to decompress!')
-	            Dir = re.sub(r'(\W)', r'\\\1', DownloadDir) 
-	            os.system('/usr/bin/unrar e '\
-	                    +Dir+filename['name'])
-	        elif filetype == 'mkv' or filetype == 'avi':
-	            print('It is a regular file. Try to link it or copy it if failure.')
-	            try:
-	                os.link(Dir+'/'+filename['name'], seriePath+'/'+nbOfSeasons[Season-1]+'/'+filename['name'])
-	            except OSError:
-	                shutil.copy(Dir+'/'+filename['name'], seriePath+nbOfSeasons[Season-1])
+            filetype = re.sub(r'.*(.{3})$', r'\1', filename['name'])
+            if filetype == 'rar':
+                print('It is an archive file. Ready to decompress!')
+                Dir = re.sub(r'(\W)', r'\\\1', DownloadDir) 
+                os.system('/usr/bin/unrar e '\
+                        + Dir + filename['name'])
+            elif filetype == 'mkv' or filetype == 'avi' or filetype == 'mp4':
+                print('It is a regular file. Try to link it or copy it if failure.')
+                try:
+                    os.link(DownloadDir + '/'+filename['name'], seriePath+'/'+nbOfSeasons[Season-1]+'/'+filename['name'])
+                except OSError:
+                    shutil.copy(DownloadDir + '/'+filename['name'], seriePath+nbOfSeasons[Season-1])
             
 # Main
 Movie_or_Serie(TorrentId)
