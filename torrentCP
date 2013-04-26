@@ -95,7 +95,10 @@ def deployNewMovie(Name):
     print('Movie name is :' + movieName)
     source=DownloadDir+moviePath
     dest=FilmsDir+movieName
-#    os.link(source, dest)
+    try:
+        os.link(source, dest)
+    except OSError:
+        shutil.copy(source, dest)
 
 def deployNewEpisode(Title, Season):
     '''Deploy the new downloaded epidode to the correct path
