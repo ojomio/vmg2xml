@@ -1,25 +1,31 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
+import imdb
 import transmissionrpc
-import os, shutil, re
+import os, shutil, re, string
 
 # TODO : Add support for movie extraction/move/link/whatever
 
 # Global variable init
-hostname = 'gilgamesh.uruk.home'
+hostname    = 'gilgamesh.uruk.home'
+port        = 9091
 DownloadDir = '/data/misc_media/Torrents/Torrent Finished/'
 TorrentId   = int(os.getenv('TR_TORRENT_ID'))
 SeriesDir   = '/data/series/'
 FilmsDir    = '/data/misc_media/Films/'
 
 # Array of uneeded informations from name
-uneededInformations = re.compile( r'Multi|720p|1080p|x264|HDTV|BDRip|BRRip|AC3|OGG|MPC|Lossless|CBR|VBR|Lame|EAC|DVD-R|DVDRIP|HDrip|mp3|Repack|Subforced|hardsub|TS|TVrip|TRUEFRENCH|vf|vfq|vostfr|vo|ntsc|pal|version|longue|FRENCH|xvid|BluRay|DVD5|DVD9WiKi|DC|SSL|3D|pox|GA\xcfA|Hive|hq|dts|dd5|^1$|rip', re.I )
-# Movie extensions
-movieExt = ( 'mkv', 'avi', 'mp4', 'iso' )
-musicExt = ( 'mp3', 'flac', 'ogg' )
+Separator = ['multi', '720p', '1080p', 'x264', 'hdtv', 'bdrip', 'brrip', 'ac3', 'ogg', 'mpc', 'lossless', 'cbr', 'vbr', 'lame', 'eac', 'dvd-r', 'dvdrip', 'hdrip', 'mp3', 'subforced', 'hardsub', 'ts', 'tvrip', 'truefrench', 'vfq', 'vostfr', 'ntsc', 'pal', 'french', 'xvid', 'bluray', '3d', 'pox', 'hq', 'dts', 'fr', 'fr', 'fr', 'hd', 'mkv']
+# movie extensions
+MovieExt = ( 'mkv', 'avi', 'mp4', 'iso', 'wmv' )
+MusicExt = ( 'mp3', 'flac', 'ogg' )
 
-trans = transmissionrpc.Client(hostname, port=9091)
+# Objects init
+
+trans = transmissionrpc.Client(hostname, port=port)
+imdb  = imdb.IMDb()
+
 
 def Movie_or_Serie(Id):
     ''' This function permits to detect by the name of torrent if it is a movie
@@ -37,9 +43,9 @@ def Movie_or_Serie(Id):
     # get files to detect others type than serie
     files = trans.get_files(TorrentId)
     for fileItem in files[TorrentId].values():
-        if fileItem['name'].endswith(movieExt):
+        if fileItem['name'].endswith(MovieExt):
             detectMovie = fileItem['name']
-        elif fileItem['name'].endswith(musicExt):
+        elif fileItem['name'].endswith(MusicExt):
             detectMusic = Name
 
     if detectSerie:
@@ -64,33 +70,32 @@ def deployNewMovie(Name):
         Name -- Name of torrent file to deploy
     '''
     moviePath = Name
-    # Find Year, good to do that before getting rid of uneeded directory path in name
-    YearReObj = re.search(r'(?P<y>(?:19|20)\d{2})', Name)
-    try:
-        Year = YearReObj.group('y')
-        year = '(' + Year + ')'
-    except AttributeError:
-        Year = ''
-    # Get rid of directory in path filename
-    movieFile = re.sub(r'.*/(.*)$', r'\1', Name)
-    splittedTitle = re.findall(r'\w+', movieFile, re.U)
-    goodTitle = [ word for word in splittedTitle if not uneededInformations.search(word)] 
-    print(goodTitle)
 
-    # Format filename
-    ext = '.' + goodTitle[-1]
-    del goodTitle[-1]
-    for k,v in enumerate(goodTitle):
-        if v == Year:
-            del goodTitle[k:]
+    # Get rid of directory in path filename
+    movieFileName = re.sub(r'.*/(.*)$', r'\1', Name)
+
+    # Extract Name, Years and extension then get rid of the rest
+    # If movie doesn't have a year statement, then use the original file name
+    extractor = re.search(r'^(?P<Name>.*)(?P<Year>(19|20)\d{2}).*(?P<Ext>\..*)$', movieFileName)
     try:
-        movieFileName = ' '.join(goodTitle) + ' ' + year + ext
-    except:
-        movieFileName = ' '.join(goodTitle) + ext
-    print(movieFileName)
+        onlyName = extractor.group('Name')
+        onlyYear = extractor.group('Year')
+        imdbResult = imdb.search_movie(onlyName + ' ' + onlyYear)
+        movieName = imdbResult[0]['title'] + ' (' + onlyYear + ')' + extractor.group('Ext')
+    except AttributeError:
+        movieFileName = movieFileName.lower()
+        extension = movieFileName.rpartition('.')[2]
+        movieNameArray = []
+        for sep in Separator:
+            movieNameArray.append(movieFileName.partition(sep)[0])
+        onlyName = str(min(movieNameArray).title()).translate(string.maketrans('._','  ')).strip()
+        imdbResult = imdb.search_movie(onlyName)
+        movieName = imdbResult[0]['title'] + ' (' + str(imdbResult[0]['year']) + ')' + extension
+
+    print('Movie name is :' + movieName)
     source=DownloadDir+moviePath
-    dest=FilmsDir+movieFileName
-    os.link(source, dest)
+    dest=FilmsDir+movieName
+#    os.link(source, dest)
 
 def deployNewEpisode(Title, Season):
     '''Deploy the new downloaded epidode to the correct path
