@@ -20,6 +20,7 @@ Separator = ['multi', '720p', '1080p', 'x264', 'hdtv', 'bdrip', 'brrip', 'ac3', 
 # movie extensions
 MovieExt = ( 'mkv', 'avi', 'mp4', 'iso', 'wmv' )
 MusicExt = ( 'mp3', 'flac', 'ogg' )
+regexDetectSerie  = r'.*\/(?P<Name>.*)[Ss](?P<Season>\d{1,2})[Ee]\d{1,2}.*'
 
 # Objects init
 
@@ -37,12 +38,11 @@ def Movie_or_Serie(Id):
     '''
     t = trans.info(Id)
     Name = t[Id].name
-    # Try to detect sXXeYY format
-    regexDetectSerie  = r'(?P<Name>.*)[Ss](?P<Season>\d{1,2})[Ee]\d{1,2}.*'
-    detectSerie = re.search(regexDetectSerie, Name)
     # get files to detect others type than serie
     files = trans.get_files(TorrentId)
     for fileItem in files[TorrentId].values():
+        if re.search(regexDetectSerie, fileItem['name']) and fileItem['name'].endswith('rar'):
+            detectSerie = re.search(regexDetectSerie, fileItem['name'])
         if fileItem['name'].endswith(MovieExt):
             detectMovie = fileItem['name']
         elif fileItem['name'].endswith(MusicExt):
@@ -50,13 +50,10 @@ def Movie_or_Serie(Id):
 
     if detectSerie:
         print(Name+' is a serie') 
-        serieName     = detectSerie.group('Name')
+        serieName     = str(detectSerie.group('Name')).title()
         serieSeasonNb = int(detectSerie.group('Season'))
         # Format the serieName
-        regexUneededCar  = r'[._-]'
-        regexReplacedCar = r' '
-        serieName        = re.sub(regexUneededCar, regexReplacedCar, serieName)
-        serieName        = serieName.strip()
+        serieName = serieName.translate(string.maketrans('.-_','   ')).strip()
         print(serieName,serieSeasonNb)
         deployNewEpisode(serieName, serieSeasonNb)
     elif detectMovie:
