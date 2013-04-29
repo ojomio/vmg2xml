@@ -1,136 +1,170 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import imdb
-import transmissionrpc
-import os, shutil, re, string
+import imdb, transmissionrpc
+import os, shutil, re, string, logging, ConfigParser, sys
 
-# TODO : Add support for movie extraction/move/link/whatever
+# TODO : Add support for musics
 
-# Global variable init
-hostname    = 'gilgamesh.uruk.home'
-port        = 9091
-DownloadDir = '/data/misc_media/Torrents/Torrent Finished/'
-TorrentId   = int(os.getenv('TR_TORRENT_ID'))
-SeriesDir   = '/data/series/'
-FilmsDir    = '/data/misc_media/Films/'
+# Parse the config file
+config = ConfigParser.ConfigParser()
+config.read('torrentCP.cfg')
 
-# Array of uneeded informations from name
-Separator = ['multi', '720p', '1080p', 'x264', 'hdtv', 'bdrip', 'brrip', 'ac3', 'ogg', 'mpc', 'lossless', 'cbr', 'vbr', 'lame', 'eac', 'dvd-r', 'dvdrip', 'hdrip', 'mp3', 'subforced', 'hardsub', 'ts', 'tvrip', 'truefrench', 'vfq', 'vostfr', 'ntsc', 'pal', 'french', 'xvid', 'bluray', '3d', 'pox', 'hq', 'dts', 'fr', 'fr', 'fr', 'hd', 'mkv']
-# movie extensions
-MovieExt = ( 'mkv', 'avi', 'mp4', 'iso', 'wmv' )
-MusicExt = ( 'mp3', 'flac', 'ogg' )
-regexDetectSerie  = r'.*\/(?P<Name>.*)[Ss](?P<Season>\d{1,2})[Ee]\d{1,2}.*'
+# Global variable initialisation
+TId         = config.getint('Global', 'TorrentId')
+Hostname    = config.get('Global', 'hostname')
+Port        = config.getint('Global', 'port')
+DownloadDir = config.get('Global', 'DownloadDir')
+TVShowsDir  = config.get('Global', 'TVShowsDir')
+MoviesDir   = config.get('Global', 'MoviesDir')
+Separator   = list(config.get('Global', 'Separator').split(','))
+MovieExt    = tuple(config.get('Global', 'MovieExt').split(','))
+MusicExt    = tuple(config.get('Global', 'MusicExt').split(','))
+RegexDetectTVShows  = re.compile(r'(.*\/)?(?P<Name>.*)[Ss](?P<Season>\d{1,2})[Ee]\d{1,2}.*')
 
 # Objects init
-
-trans = transmissionrpc.Client(hostname, port=port)
+trans = transmissionrpc.Client(Hostname, port=Port)
 imdb  = imdb.IMDb()
+logger = logging.basicConfig(filename=config.get('Global', 'logfile'), level=logging.DEBUG)
 
 
 def Movie_or_Serie(Id):
-    ''' This function permits to detect by the name of torrent if it is a movie
-    or a serie.
+    ''' This function permits to detect by the files name if it is a movie
+    or a tvshow or music (not implemented yet).
     
     Parameters :
-        Name -- string which contains torrent name.
+        Id -- string which contains torrent transmission id.
         
     '''
     t = trans.info(Id)
     Name = t[Id].name
-    # get files to detect others type than serie
-    files = trans.get_files(TorrentId)
-    for fileItem in files[TorrentId].values():
-        if re.search(regexDetectSerie, fileItem['name']) and fileItem['name'].endswith('rar'):
-            detectSerie = re.search(regexDetectSerie, fileItem['name'])
-        if fileItem['name'].endswith(MovieExt):
+    detectTVShow = 'Nothing here!'
+    detectMovie = 'Nothing here neither... Crap we are screwed!'
+
+    # Get files to detect media type
+    files = trans.get_files(Id)
+    for fileItem in files[Id].values():
+        if re.search(RegexDetectTVShows, fileItem['name']) and fileItem['name'].endswith('rar'):
+            detectTVShow = re.search(RegexDetectTVShows, fileItem['name'])
+            logging.debug(fileItem['name'] + ' processed')
+        elif fileItem['name'].endswith(MovieExt):
             detectMovie = fileItem['name']
         elif fileItem['name'].endswith(MusicExt):
             detectMusic = Name
 
-    if detectSerie:
-        print(Name+' is a serie') 
-        serieName     = str(detectSerie.group('Name')).title()
-        serieSeasonNb = int(detectSerie.group('Season'))
-        # Format the serieName
-        serieName = serieName.translate(string.maketrans('.-_','   ')).strip()
-        print(serieName,serieSeasonNb)
-        deployNewEpisode(serieName, serieSeasonNb)
-    elif detectMovie:
-        print(detectMovie+' is a movie')
+    if detectTVShow != 'Nothing here!':
+        logging.info(Name+' is a tvshow') 
+        tvshowName     = str(detectTVShow.group('Name')).title()
+        tvshowSeasonNb = int(detectTVShow.group('Season'))
+
+        # Format the TVShow name
+        tvshowName = tvshowName.translate(string.maketrans('.-_','   ')).strip()
+        logging.debug(tvshowName)
+        logging.debug(tvshowSeasonNb)
+        deployNewEpisode(tvshowName, tvshowSeasonNb)
+    elif detectMovie != 'Nothing here neither... Crap we are screwed!':
+        logging.info(detectMovie+' is a movie')
         deployNewMovie(detectMovie)
 
-def deployNewMovie(Name):
+def deployNewMovie(moviePath):
     '''Deploy new movie and try to set file name with title and years
+    Format try to get the smaller title cutted at the first separator found.
+    Or take the first part before the year if year appears.
+    Deployment is trying to hard link first else it copy it.
 
     Parameters :
-        Name -- Name of torrent file to deploy
-    '''
-    moviePath = Name
+        moviePath -- Path where files to deploy are stored
 
-    # Get rid of directory in path filename
-    movieFileName = re.sub(r'.*/(.*)$', r'\1', Name)
+    '''
 
     # Extract Name, Years and extension then get rid of the rest
     # If movie doesn't have a year statement, then use the original file name
-    extractor = re.search(r'^(?P<Name>.*)(?P<Year>(19|20)\d{2}).*(?P<Ext>\..*)$', movieFileName)
+    extractor = re.search(r'^(?P<Name>.*)(?P<Year>(19|20)\d{2}).*(?P<Ext>\..*)$', moviePath)
+
+    # Get rid of directory in path filename
+    movieFileName = re.sub(r'.*/(.*)$', r'\1', moviePath)
+
     try:
         onlyName = extractor.group('Name')
         onlyYear = extractor.group('Year')
         imdbResult = imdb.search_movie(onlyName + ' ' + onlyYear)
         movieName = imdbResult[0]['title'] + ' (' + onlyYear + ')' + extractor.group('Ext')
     except AttributeError:
+        logging.warning('No year information found. Trying to format title based upon separators')
         movieFileName = movieFileName.lower()
-        extension = movieFileName.rpartition('.')[2]
+        extension = '.' + movieFileName.rpartition('.')[2]
         movieNameArray = []
         for sep in Separator:
             movieNameArray.append(movieFileName.partition(sep)[0])
         onlyName = str(min(movieNameArray).title()).translate(string.maketrans('._','  ')).strip()
         imdbResult = imdb.search_movie(onlyName)
-        movieName = imdbResult[0]['title'] + ' (' + str(imdbResult[0]['year']) + ')' + extension
+        try:
+            movieName = imdbResult[0]['title'] + ' (' + str(imdbResult[0]['year']) + ')' + extension
+        except IndexError:
+            logging.error('Movie title not found into imdb. Exiting')
+            sys.exit(1)
 
-    print('Movie name is :' + movieName)
+    logging.info('Movie name is :' + movieName)
     source=DownloadDir+moviePath
-    dest=FilmsDir+movieName
+    dest=MoviesDir+movieName
     try:
         os.link(source, dest)
     except OSError:
         shutil.copy(source, dest)
 
 def deployNewEpisode(Title, Season):
-    '''Deploy the new downloaded epidode to the correct path
+    '''Deploy the new downloaded epidode to the correct path.
+    Your directory structure has to be like this :
+    -Name of tv show
+    |_ Season 1
+    |_ Season 2
+    |_ etc...
+
+    Deployment is trying to hard link first else it copy it.
 
     Parameters :
         Title -- Formatted Title of tv show.
         Season -- Season number
 
     '''
-    seriePath   = SeriesDir+Title+'/'
-    nbOfSeasons = sorted(os.listdir(seriePath))
+    tvshowPath   = TVShowsDir+Title+'/'
+    nbOfSeasons = sorted(os.listdir(tvshowPath))
     # Create directory if doesn't exists
     if len(nbOfSeasons) < Season:
-        os.mkdir(seriePath+'Season '+str(Season))
-        nbOfSeasons = sorted(os.listdir(seriePath))
+        os.mkdir(tvshowPath+'Season '+str(Season))
+        nbOfSeasons = sorted(os.listdir(tvshowPath))
     #We had to soustract 1 because list count beginning at 0
-    print(nbOfSeasons[Season-1])
-    os.chdir(seriePath+nbOfSeasons[Season-1])
+    logging.debug('TV show subdirectory where to extract : ')
+    logging.debug('>> ' + tvshowPath + nbOfSeasons[Season-1])
+    os.chdir(tvshowPath+nbOfSeasons[Season-1])
     
     # Find rar file and decompress episode
-    files = trans.get_files(TorrentId)
-    for filename in files[TorrentId].values():
+    files = trans.get_files(TId)
+    for filename in files[TId].values():
         if not re.search('sample', filename['name'], re.I):
             filetype = re.sub(r'.*(.{3})$', r'\1', filename['name'])
             if filetype == 'rar':
-                print('It is an archive file. Ready to decompress!')
+                logging.info(filename['name'] + ' is an archive file. Ready to decompress!')
                 Dir = re.sub(r'(\W)', r'\\\1', DownloadDir) 
-                os.system('/usr/bin/unrar e '\
+                os.system('/usr/bin/unrar e -o- '\
                         + Dir + filename['name'])
             elif filetype == 'mkv' or filetype == 'avi' or filetype == 'mp4':
-                print('It is a regular file. Try to link it or copy it if failure.')
+                logging.info('It is a regular file. Try to link it or copy it if failure.')
                 try:
-                    os.link(DownloadDir + '/'+filename['name'], seriePath+'/'+nbOfSeasons[Season-1]+'/'+filename['name'])
+                    os.link(DownloadDir + '/'+filename['name'], tvshowPath+'/'+nbOfSeasons[Season-1]+'/'+filename['name'])
                 except OSError:
-                    shutil.copy(DownloadDir + '/'+filename['name'], seriePath+nbOfSeasons[Season-1])
+                    shutil.copy(DownloadDir + '/'+filename['name'], tvshowPath+nbOfSeasons[Season-1])
             
-# Main
-Movie_or_Serie(TorrentId)
+def main():
+    """
+    This main function is designed to be called by transmission.
+    Just calling one fonction beginning the process
+
+    """
+
+    logging.info('Beginning')
+    Movie_or_Serie(TId)
+    logging.info('This is the end... my only friend.... the end.')
+
+if __name__ == "__main__":
+    main()
