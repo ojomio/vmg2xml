@@ -25,7 +25,7 @@ RegexDetectTVShows  = re.compile(r'(.*\/)?(?P<Name>.*)[Ss](?P<Season>\d{1,2})[Ee
 # Objects init
 trans = transmissionrpc.Client(Hostname, port=Port)
 imdb  = imdb.IMDb()
-logger = logging.basicConfig(filename=config.get('Global', 'logfile'), level=logging.DEBUG)
+logger = logging.basicConfig(filename=config.get('Global', 'logfile'), level=logging.DEBUG, format='%(asctime)s:%(levelname)s: %(message)s')
 
 
 def Movie_or_Serie(Id):
@@ -146,7 +146,7 @@ def deployNewEpisode(Title, Season):
             if filetype == 'rar':
                 logging.info(filename['name'] + ' is an archive file. Ready to decompress!')
                 Dir = re.sub(r'(\W)', r'\\\1', DownloadDir) 
-                os.system('/usr/bin/unrar e -o- '\
+                os.system('/usr/bin/unrar e -o- -inul '\
                         + Dir + filename['name'])
             elif filetype == 'mkv' or filetype == 'avi' or filetype == 'mp4':
                 logging.info('It is a regular file. Try to link it or copy it if failure.')
@@ -154,6 +154,7 @@ def deployNewEpisode(Title, Season):
                     os.link(DownloadDir + '/'+filename['name'], tvshowPath+'/'+nbOfSeasons[Season-1]+'/'+filename['name'])
                 except OSError:
                     shutil.copy(DownloadDir + '/'+filename['name'], tvshowPath+nbOfSeasons[Season-1])
+    logging.info('At this point your episode is available')
             
 def main():
     """
