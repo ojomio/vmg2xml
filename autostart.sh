@@ -13,8 +13,8 @@ PROCESSED_FILE=/storage/.config/autostart_processed_files.ls
 
 # Regex pattern used later
 
-EXCLUDED_DIR="incoming|sample|watch|\/$|downloads\/.*\/.*$(cat ${PROCESSED_DIR})"
-EXCLUDED_FILES="incoming|sample|watch|\/$|downloads\/.*\/.*$(cat ${PROCESSED_FILE})"
+EXCLUDED_DIR="incoming|sample|watch|\/$|downloads\/.*\/.*$(cat \"${PROCESSED_DIR}\")"
+EXCLUDED_FILES="incoming|sample|watch|\/$|downloads\/.*\/.*$(cat \"${PROCESSED_FILE}\")"
 EXTENSION_PATTERN=".{4}$"
 TVSHOW_PATTERN="saison|season|s[0-9]{2}"
 MOVIENAME_PATTERN=".*[0-9]{4}"
@@ -56,7 +56,7 @@ do
            ln -f "$FILE" "${MOVIES_DIR}${NAME}${EXTENSION}" >> ${LOGFILE}
         done
     else
-        echo "It is a series: $DIR" >> ${LOGFILE}
+        echo "It is a series: $FILE" >> ${LOGFILE}
         
         # Try to detect tvshow name
         # Get rid of unwanted characters and replaced them by space and get rid of trailing space
@@ -86,13 +86,42 @@ for SAFE_FILE in $LS_FILES
 do
     # Detect useful files removing space in names, replacing them with underscore
     FILE=$( echo "$SAFE_FILE" | eval ${RETURN_SPACE})
-    EXTENSION=$(echo "$FILE" | grep -E -o ${EXTENSION_PATTERN})
-    NAME=$(echo "$FILE" | cut -d"/" -f 4 | grep -E -o ${MOVIENAME_PATTERN} | eval ${SURROUND_YEARS})
-    if [ "$EXTENSION" = ".avi" -o "$EXTENSION" = ".mkv" -o "$EXTENSION" = ".mp4" ]
+    
+    # Try to detect tv show pattern
+    detectTVShow=$(echo "$FILE" | cut -d"/" -f 4 | grep -Ei $TVSHOW_PATTERN)
+
+    EXTENSION=$(echo "$FILE" | grep -E -o ${EXTENSION_PATTERN})     
+
+    if [ x"$detectTVShow}" = x ]
     then
-        echo "Link: $FILE ${MOVIES_DIR}${NAME}${EXTENSION}" >> ${LOGFILE}
-        ln -f "$FILE" "${MOVIES_DIR}${NAME}${EXTENSION}" >> ${LOGFILE}
-        echo -n "|${FILE}" >> ${PROCESSED_FILE}
+        NAME=$(echo "$FILE" | cut -d"/" -f 4 | grep -E -o ${MOVIENAME_PATTERN} | eval ${SURROUND_YEARS})
+        if [ "$EXTENSION" = ".avi" -o "$EXTENSION" = ".mkv" -o "$EXTENSION" = ".mp4" ]
+        then
+            echo "Link: $FILE ${MOVIES_DIR}${NAME}${EXTENSION}" >> ${LOGFILE}
+            ln -f "$FILE" "${MOVIES_DIR}${NAME}${EXTENSION}" >> ${LOGFILE}
+            echo -n "|${FILE}" >> ${PROCESSED_FILE}
+        fi
+    else
+        echo "It is a series: $FILE" >> ${LOGFILE}                                                                                                                                                              
+                                                                                                                                                                                                               
+        # Try to detect tvshow name                                                                                                                                                                            
+        # Get rid of unwanted characters and replaced them by space and get rid of trailing space                                                                                                              
+        TVSHOW_NAME=$(echo "$detectTVShow" | eval ${GET_TVSHOW_NAME})                                                                                                                                          
+        echo "Tv Show name is : $TVSHOW_NAME" >> ${LOGFILE}                                                                                                                                                    
+                                                                                                                                                                                                               
+        echo "Create Directories for $DIR" >> ${LOGFILE}                                                                                                                                                       
+        DIR_NAME=$(echo "$DIR" | cut -d "/" -f 4 | eval ${GET_TVSHOW_SEASON})                                                                                                                                  
+        mkdir -p "${TVSHOWS_DIR}${TVSHOW_NAME}/${DIR_NAME}" >> ${LOGFILE}
+
+        if [ "$EXTENSION" = ".avi" -o "$EXTENSION" = ".mkv" -o "$EXTENSION" = ".mp4" ]                                                                                                                         
+        then                                                                                                                                                                                                   
+            echo "Link: $FILE ${TVSHOWS_DIR}${TVSHOW_NAME}/${DIR_NAME}" >> ${LOGFILE}                                                                                                                                  
+            ln -f "$FILE" "${TVSHOWS_DIR}${TVSHOW_NAME}/${DIR_NAME}" >> ${LOGFILE}                                                                                                                                     
+            echo -n "|${FILE}" >> ${PROCESSED_FILE}                                                                                                                                                            
+        fi
     fi
 done
+
+xbmc-send -a "UpdateLibrary(video,'/storage/videos')"
+
 echo "End: $(date +%H:%M)" >>  ${LOGFILE}
