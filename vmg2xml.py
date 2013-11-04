@@ -83,7 +83,8 @@ def write_output(outfile, all_sms=[]):
     file_handler.write(header)
     
     for sms in all_sms:
-        timestamp = str(calendar.timegm(sms['Date'].timetuple()))
+        # Added 000 to include milliseconds into timestamp.
+        timestamp = str(calendar.timegm(sms['Date'].timetuple())) + "000"
         line = '<sms protocol="0" address="' + sms['CellNumber'] + '" date="' + timestamp + '" type="1" subject="null" body="' + sms['Body'] + '" toa="null" sc_toa="null" service_center="+33660003000" read="1" status="-1" locked="0" date_sent="' + timestamp + '", readable_date="' + sms['Date'].strftime("%d %b %Y %H:%M:%S")  + '" />\n'
         file_handler.write(line)
 
