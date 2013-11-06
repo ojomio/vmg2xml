@@ -1,0 +1,161 @@
+#!/bin/bash
+#
+#        /etc/rc.d/init.d/ovfenv
+#
+# Get ovfenv properties and process them.
+#
+# chkconfig: 345 26 09
+# description: Every operation here is allowed, for now, it is just
+# about network configuration but anything can be retrieved
+# from properties to setup os, db, as configuration...
+#
+# processname: none
+
+# Source function library.
+. /etc/rc.d/init.d/functions
+
+LOCK_FILE=/var/lock/subsys/ovfenv
+
+# Get the ovfenv.xml file from vmware tools or cdrom if vmtools failed.
+get_ovfenv()
+{
+    OVFENV=/etc/sysconfig/ovfenv.xml
+
+    /usr/sbin/vmtoolsd --cmd "info-get guestinfo.ovfenv" > $OVFENV
+    if [ $? -ne 0 ]
+    then
+        mount -o ro /dev/cdrom /media
+        cp -f /media/ovfenv.xml $OVFENV
+        umount /media
+    fi        
+}
+
+set_eth0()
+{
+    ETH0_FILE=/etc/sysconfig/network-scripts/ifcfg-eth0
+    ip=$(grep -E "Property .*ip" $OVFENV | grep -oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")
+    netmask=$(grep -E "Property .*netmask" $OVFENV | grep -oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")
+    hwaddr=$(ifconfig eth0 | awk '$4 == "HWaddr" {print $5}')
+    
+    cat > ${ETH0_FILE}  << EOF
+# Set by ovfenv service.
+# Don't change manually value will be reseted at reboot
+DEVICE=eth0
+NAME=eth0
+BOOTPROTO=none
+IPADDR=$ip
+NETMASK=$netmask
+HWADDR=$hwaddr
+ONBOOT=yes
+EOF
+
+    echo "IP;${ip};${ETH0_FILE}" >> $LOCK_FILE
+    echo "Netmask;${netmask};${ETH0_FILE}" >> $LOCK_FILE
+    echo "Mac;${hwaddr};${ETH0_FILE}" >> $LOCK_FILE
+    
+    set_hosts $ip
+}
+
+set_dns()
+{
+    RESOLV=/etc/resolv.conf
+    DOMAIN=$(hostname -d)
+    dns1=$(grep -E "Property .*dns1" $OVFENV | grep -oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")
+    dns2=$(grep -E "Property .*dns2" $OVFENV | grep -oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")
+    
+    cat > $RESOLV << EOF
+search $DOMAIN
+nameserver $dns1
+nameserver $dns2
+EOF
+
+    echo "DNS;${dns1};${RESOLV}" >> $LOCK_FILE
+    echo "DNS;${dns2};${RESOLV}" >> $LOCK_FILE
+}
+# Adjust /etc/hosts entry
+set_hosts()
+{
+    ip=$1
+    FQDN=$(hostname)
+    SDN=$(hostname -s)
+    HOSTS_FILE=/etc/hosts
+    if [ $(grep $FQDN $HOSTS_FILE) ]
+    then
+        sed -i -r 's/[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}(.*'$FQDN'.*)$/'$ip'\1/' $HOSTS_FILE
+    elif [ $(grep $SDN $HOSTS_FILE) ]
+        sed -i -r 's/[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}(.*'$SDN'.*)$/'$ip'\1/' $HOSTS_FILE
+    else
+        echo "${ip} ${FQDN} ${SDN}" >> $HOSTS_FILE
+    fi
+    
+    echo "HostsFile;${ip};${HOSTS_FILE}" >> $LOCK_FILE
+}
+
+# Set or replace the system default gateway.
+set_default_gateway()
+{
+    SYSTEM_NETWORK_FILE=/etc/sysconfig/network
+    gateway=$(grep -E "Property .*gateway" $OVFENV | grep -oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")
+
+    if [ $(grep GATEWAY /etc/sysconfig/network) ] 
+      then
+        sed -i -r 's/(GATEWAY=).*/\1'$gateway'/' $SYSTEM_NETWORK_FILE
+    else
+        echo "GATEWAY=$gateway" >> $SYSTEM_NETWORK_FILE
+    fi
+
+    echo "Gateway;${gateway};${SYSTEM_NETWORK_FILE}" >> $LOCK_FILE
+}
+
+check_ovfenv_properties_set()
+{
+    RETVAL=0
+
+    for line in $(cat $LOCK_FILE)
+    do
+       key=$(echo $line|cut -d";" -f1)
+       value=$(echo $line|cut -d";" -f2)
+       file=$(echo $line|cut -d";" -f3)
+    
+       if [ "$(grep "${value}" ${file})" ]
+       then
+          echo -n "$key correctly set: "
+          success
+          echo
+       else
+          echo -n "$key not set on $file: "
+          failure
+          echo
+          RETVAL=1
+       fi
+    done
+
+    return $RETVAL
+}
+
+case "$1" in
+    start)
+        # Clean up lock file first
+        rm -f $LOCK_FILE
+        touch $LOCK_FILE
+        get_ovfenv
+        set_eth0
+        set_default_gateway
+        check_ovfenv_properties_set
+    ;;
+    stop)
+#        echo -n "Shutting down ovfenv services: "
+        rm -f $LOCK_FILE
+    ;;
+    status)
+        check_ovfenv_properties_set
+    ;;
+    restart)
+        $0 stop
+        $0 start
+    ;;
+    *)
+        echo "Usage: ovfenv {start|stop|status|restart"
+        exit 1
+    ;;
+esac
