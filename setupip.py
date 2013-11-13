@@ -16,7 +16,12 @@ def getPropertyMap(ovfEnv):
    dom.unlink()
    return propertyMap
  
-ovfEnv = open("d:\\ovf-env.xml", "r").read()
+enc = sys.stdout.encoding
+if subsystem.check_output(["C:\\Program Files\\VMware\\VMware Tools\\vmtoolsd.exe", "--cmd" ,"info-get guestinfo.ovfEnv"], shell=True) == 0:
+    ovfEnv = subsystem.check_output(["C:\\Program Files\\VMware\\VMware Tools\\vmtoolsd.exe", "--cmd" ,"info-get guestinfo.ovfEnv"], shell=True).decode(enc)
+else:
+    ovfEnv = open("d:\\ovf-env.xml", "r").read()
+
 propertyMap = getPropertyMap(ovfEnv)
 
 ip      = propertyMap["ip"]
@@ -26,7 +31,6 @@ dns1    = propertyMap["dns1"]
 dns2    = propertyMap["dns2"]
 
 # Get only first ethernet adapter name
-enc = sys.stdout.encoding
 name = subprocess.check_output("wmic nic where `"netconnectionid like '%'\" get netconnectionid", shell=True).decode(enc)
 name = "\"" + str(name).split('\r\r\n')[1].strip() + "\""
 
