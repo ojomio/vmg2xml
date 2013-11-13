@@ -4,7 +4,7 @@
 #
 # Get ovfenv properties and process them.
 #
-# chkconfig: 345 26 09
+# chkconfig: 345 09 26
 # description: Every operation here is allowed, for now, it is just
 # about network configuration but anything can be retrieved
 # from properties to setup os, db, as configuration...
@@ -30,13 +30,26 @@ get_ovfenv()
     fi        
 }
 
-set_eth0()
+set_network()
 {
     ETH0_FILE=/etc/sysconfig/network-scripts/ifcfg-eth0
-    ip=$(grep -E "Property .*ip" $OVFENV | grep -oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")
-    netmask=$(grep -E "Property .*netmask" $OVFENV | grep -oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")
+    XMLNS="setns oe=http://schemas.dmtf.org/ovf/environment/1\n"
+    GET="cat /oe:Environment/oe:PropertySection/oe:Property"
+    IP_KEY="[@oe:key='ip']"
+    NETMASK_KEY="[@oe:key='netmask']"
+    GATEWAY_KEY="[@oe:key='gateway']"
+    DOMAIN_KEY="[@oe:key='domain']"
+    DNS1_KEY="[@oe:key='dns1']"
+    DNS2_KEY="[@oe:key='dns2']"
+
+    ip=$(echo -e "${XMLNS}${GET}${IP_KEY}" | xmllint --shell $OVFENV | grep -oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")
+    netmask=$(echo -e "${XMLNS}${GET}${NETMASK_KEY}" | xmllint --shell $OVFENV | grep -oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")
+    gateway=$(echo -e "${XMLNS}${GET}${GATEWAY_KEY}" | xmllint --shell $OVFENV | grep -oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")
+    domain=$(echo -e "${XMLNS}${GET}${DOMAIN_KEY}" | xmllint --shell $OVFENV | grep value | sed -r 's/.*value="(.*)".*/\1/')
+    dns1=$(echo -e "${XMLNS}${GET}${DNS1_KEY}" | xmllint --shell $OVFENV | grep -oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")
+    dns2=$(echo -e "${XMLNS}${GET}${DNS2_KEY}" | xmllint --shell $OVFENV | grep -oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")
     hwaddr=$(ifconfig eth0 | awk '$4 == "HWaddr" {print $5}')
-    
+
     cat > ${ETH0_FILE}  << EOF
 # Set by ovfenv service.
 # Don't change manually value will be reseted at reboot
@@ -53,24 +66,25 @@ EOF
     echo "Netmask;${netmask};${ETH0_FILE}" >> $LOCK_FILE
     echo "Mac;${hwaddr};${ETH0_FILE}" >> $LOCK_FILE
     
+    set_dns $domain $dns1 $dns2
+    set_default_gateway $gateway
     set_hosts $ip
 }
 
+# Configure DNS settings
 set_dns()
 {
-    RESOLV=/etc/resolv.conf
-    DOMAIN=$(hostname -d)
-    dns1=$(grep -E "Property .*dns1" $OVFENV | grep -oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")
-    dns2=$(grep -E "Property .*dns2" $OVFENV | grep -oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")
-    
-    cat > $RESOLV << EOF
-search $DOMAIN
-nameserver $dns1
-nameserver $dns2
+    DNS_FILE=/etc/resolv.conf
+    cat > $DNS_FILE << EOF
+# Set by ovfenv
+search $1
+nameserver $2
+nameserver $3
 EOF
 
-    echo "DNS;${dns1};${RESOLV}" >> $LOCK_FILE
-    echo "DNS;${dns2};${RESOLV}" >> $LOCK_FILE
+    echo "Domain;$1;$DNS_FILE" >> $LOCK_FILE
+    echo "Dns1;$2;$DNS_FILE" >> $LOCK_FILE
+    echo "Dns2;$3;$DNS_FILE" >> $LOCK_FILE
 }
 # Adjust /etc/hosts entry
 set_hosts()
@@ -79,10 +93,12 @@ set_hosts()
     FQDN=$(hostname)
     SDN=$(hostname -s)
     HOSTS_FILE=/etc/hosts
-    if [ $(grep $FQDN $HOSTS_FILE) ]
+
+    if [ "$(grep -i $FQDN $HOSTS_FILE)" ]
     then
         sed -i -r 's/[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}(.*'$FQDN'.*)$/'$ip'\1/' $HOSTS_FILE
-    elif [ $(grep $SDN $HOSTS_FILE) ]
+    elif [ "$(grep -i $SDN $HOSTS_FILE)" ]
+    then
         sed -i -r 's/[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}(.*'$SDN'.*)$/'$ip'\1/' $HOSTS_FILE
     else
         echo "${ip} ${FQDN} ${SDN}" >> $HOSTS_FILE
@@ -95,11 +111,11 @@ set_hosts()
 set_default_gateway()
 {
     SYSTEM_NETWORK_FILE=/etc/sysconfig/network
-    gateway=$(grep -E "Property .*gateway" $OVFENV | grep -oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")
+    gateway=$1
 
-    if [ $(grep GATEWAY /etc/sysconfig/network) ] 
-      then
-        sed -i -r 's/(GATEWAY=).*/\1'$gateway'/' $SYSTEM_NETWORK_FILE
+    if [ "$(grep GATEWAY /etc/sysconfig/network)" ] 
+    then
+        sed -i -r 's/(GATEWAY=).*/\1'${gateway}'/' $SYSTEM_NETWORK_FILE
     else
         echo "GATEWAY=$gateway" >> $SYSTEM_NETWORK_FILE
     fi
@@ -116,21 +132,20 @@ check_ovfenv_properties_set()
        key=$(echo $line|cut -d";" -f1)
        value=$(echo $line|cut -d";" -f2)
        file=$(echo $line|cut -d";" -f3)
-    
-       if [ "$(grep "${value}" ${file})" ]
+   if [ "$file" ]
+   then
+       if [ -z "$(grep "${value}" ${file})" ]
        then
-          echo -n "$key correctly set: "
-          success
-          echo
-       else
           echo -n "$key not set on $file: "
           failure
           echo
           RETVAL=1
        fi
+    fi
     done
 
-    return $RETVAL
+    [ $RETVAL -eq 0 ] && echo -n "OVF environment correctly applied" && success && echo
+    exit $RETVAL
 }
 
 case "$1" in
@@ -139,8 +154,7 @@ case "$1" in
         rm -f $LOCK_FILE
         touch $LOCK_FILE
         get_ovfenv
-        set_eth0
-        set_default_gateway
+        set_network
         check_ovfenv_properties_set
     ;;
     stop)
@@ -148,7 +162,14 @@ case "$1" in
         rm -f $LOCK_FILE
     ;;
     status)
-        check_ovfenv_properties_set
+        if [ -f $LOCK_FILE ]
+        then
+            check_ovfenv_properties_set
+        else
+            echo -n "No lock file found, ovfenv not launched."
+            failure
+            echo
+        fi
     ;;
     restart)
         $0 stop
