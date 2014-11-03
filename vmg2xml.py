@@ -1,18 +1,18 @@
 #!/usr/bin/env python
 
-import quopri,re, StringIO, datetime, calendar, locale
+import quopri, re, StringIO, datetime, calendar, locale
 from optparse import OptionParser
 
 buf = StringIO
 
-Regexp = { 'CellNumber' : re.compile(r'CELL:(\+[0-9]*)\r'),
-    'Date': re.compile(r'^Date:(.*)\r'),
-    'Body_1st_line': re.compile(r'TEXT.*PRINTABLE:(.*)\r$'),
-    'Body_others_lines': re.compile(r'(.*)\r') }
+Regexp = {'CellNumber': re.compile(r'TEL:(\+[0-9]*)\r'),
+          'Date': re.compile(r'^Date:(.*?)\r'),
+          'Body': re.compile(r'(?:;ENCODING=.*PRINTABLE.*\:)?(.*?)\r$'),
+}
 Date_conversion = re.compile(r'(\d{2})\.(\d{2})\.(\d{4}) (\d{2}):(\d{2}):(\d{2})')
 
 # Setting locale to FR_fr for correct date formating
-locale.setlocale(locale.LC_ALL, 'fr_FR')
+#locale.setlocale(locale.LC_ALL, 'fr_FR')
 
 def extractor(field='', line='', sms_items={}):
     '''
@@ -23,13 +23,14 @@ def extractor(field='', line='', sms_items={}):
         dict_field = 'Body'
     else:
         dict_field = field
-        
+
     try:
-       sms_items[dict_field] += re.search(Regexp[field], line).group(1)
-#       print "Found " + dict_field + ": " + sms_items[dict_field]
+        sms_items[dict_field] += re.search(Regexp[field], line).group(1)
+    #       print "Found " + dict_field + ": " + sms_items[dict_field]
     except AttributeError:
-       pass
+        pass
     return sms_items
+
 
 def format_date(all_sms):
     '''
@@ -39,9 +40,11 @@ def format_date(all_sms):
     '''
     for sms in all_sms:
         match = re.search(Date_conversion, sms['Date'])
-        sms['Date'] = datetime.datetime(int(match.group(3)), int(match.group(2)), int(match.group(1)), int(match.group(4)), int(match.group(5)), int(match.group(6)))
+        sms[
+            'Date'] = datetime.datetime.now()  #datetime.datetime(int(match.group(3)), int(match.group(2)), int(match.group(1)), int(match.group(4)), int(match.group(5)), int(match.group(6)))
     return all_sms
-        
+
+
 def construct_listing(infile):
     '''
     Function list all sms into a vmg file and for each one
@@ -52,45 +55,63 @@ def construct_listing(infile):
     all_sms = []
     sms_items = {'CellNumber': '', 'Date': '', 'Body': ''}
     Body_Complete = False
-
+    Body_In_Progress = False
+    Message_In_Progress = False
     for line in infile.readlines():
-        sms_items = extractor('CellNumber', line, sms_items)
-        sms_items = extractor('Date', line, sms_items)
-        sms_items = extractor('Body_1st_line', line, sms_items)
-        if not line.startswith('END:VBODY') and (not line.startswith('TEXT;') and sms_items['Body'] != ''):
-            sms_items['Body'] = sms_items['Body'].rstrip('=')
-            sms_items = extractor('Body_others_lines', line, sms_items)
-        elif line.startswith('END:VBODY'):
-            sms_items['Body'] = re.sub(r'=0A', ' ', sms_items['Body'])
-            sms_items['Body'] = quopri.decodestring(sms_items['Body'])
-            Body_Complete = True
+        if line.startswith('BEGIN:VMSG'):
+            Message_In_Progress = True
+            continue
+        if line.startswith('END:VMSG'):
+            Message_In_Progress = False
+
+        if Message_In_Progress:
+            sms_items = extractor('CellNumber', line, sms_items)
+            sms_items = extractor('Date', line, sms_items)
+            if line.startswith('BEGIN:VBODY'):
+                Body_In_Progress = True
+                continue
+            if line.startswith('END:VBODY'):
+                sms_items['Body'] = re.sub(r'=0A', ' ', sms_items['Body'])
+                sms_items['Body'] = quopri.decodestring(sms_items['Body'])
+                Body_Complete = True
+                Body_In_Progress = False
+            elif Body_In_Progress:
+                sms_items['Body'] = sms_items['Body'].rstrip('=')
+                sms_items = extractor('Body', line, sms_items)
 
         # Populate sms list when all informations retrieved and reset information for next sms
-        if sms_items['CellNumber'] != '' and sms_items['Date'] != '' and Body_Complete == True:
+        if not Message_In_Progress and sms_items['Body']:
             all_sms.append(sms_items)
-            sms_items = { 'CellNumber': '', 'Date': '', 'Body': ''}
+            sms_items = {'CellNumber': '', 'Date': '', 'Body': ''}
             Body_Complete = False
     return all_sms
+
 
 def write_output(outfile, all_sms=[]):
     '''
     Just write in SMS Backup Restore xml file format the result
     VMG file parsing.
     '''
-    header = "<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>\n<!--File Created By SMS Backup & Restore v6.41 on 02/11/2013 17:54:18-->\n<?xml-stylesheet type=\"text/xsl\" href=\"sms.xsl\"?>\n<smses count=\""+ str(len(all_sms)) + "\">\n"
+    header = "<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>\n<!--File Created By SMS Backup & Restore v6.41 on 02/11/2013 17:54:18-->\n<?xml-stylesheet type=\"text/xsl\" href=\"sms.xsl\"?>\n<smses count=\"" + str(
+        len(all_sms)) + "\">\n"
     footer = "</smses>"
     file_handler = open(outfile, mode='w')
     file_handler.write(header)
-    
+
     for sms in all_sms:
         # Added 000 to include milliseconds into timestamp.
-        timestamp = str(calendar.timegm(sms['Date'].timetuple())) + "000"
-        line = '<sms protocol="0" address="' + sms['CellNumber'] + '" date="' + timestamp + '" type="1" subject="null" body="' + sms['Body'] + '" toa="null" sc_toa="null" service_center="+33660003000" read="1" status="-1" locked="0" date_sent="' + timestamp + '", readable_date="' + sms['Date'].strftime("%d %b %Y %H:%M:%S")  + '" />\n'
+        timestamp = str(calendar.timegm(datetime.datetime.now().timetuple())) + "000"
+        print(timestamp)
+        line = '<sms protocol="0" address="' + sms[
+            'CellNumber'] + '" date="' + timestamp + '" type="1" subject="null" body="' + sms[
+                   'Body'] + '" toa="null" sc_toa="null" service_center="+33660003000" read="1" status="-1" locked="0" date_sent="' + timestamp + '", readable_date="' + \
+               sms['Date'].strftime("%d %b %Y %H:%M:%S") + '" />\n'
         file_handler.write(line)
 
     file_handler.write(footer)
     file_handler.close()
     print "All SMS convert into XML format for SMS Backup Restore Android app"
+
 
 def main(inputfile, outputfile):
     infile = open(inputfile)
@@ -100,6 +121,7 @@ def main(inputfile, outputfile):
     print "Found", len(all_sms), "SMS."
     all_sms = format_date(all_sms)
     write_output(outputfile, all_sms)
+
 
 if __name__ == "__main__":
     parser = OptionParser()
